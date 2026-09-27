@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WORKER
+  CONTRACTOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  phone        String   @unique
+  name         String
+  role         Role
+  profilePhoto String?
+  trustScore   Int      @default(100)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workerProfile       WorkerProfile?
+  sites               Site[]
+  jobPostings         JobPosting[]
+  applications        JobApplication[]
+  
+  workerLinksAsWorker     WorkerContractorLink[] @relation("WorkerLinks")
+  workerLinksAsContractor WorkerContractorLink[] @relation("ContractorLinks")
+  
+  attendanceRecords   AttendanceRecord[]
+  paymentsReceived    PaymentRecord[] @relation("WorkerPayments")
+  paymentsMade        PaymentRecord[] @relation("ContractorPayments")
+  safetyReports       SafetyReport[]
+  trustScoreHistory   TrustScoreHistory[]
+  
+  disputesAsWorker    DisputeReport[] @relation("DisputesAsWorker")
+  disputesAsContractor DisputeReport[] @relation("DisputesAsContractor")
+}
+
+model WorkerProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  trades          String[]
+  otherTrade      String?
+  yearsExperience Int?     @default(1)
+  searchRadius    Float    @default(10.0)
+  lat             Float?
+  lng             Float?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Site {
+  id           String   @id @default(uuid())
+  contractorId String
+  name         String
+  lat          Float
+  lng          Float
+  siteType     String   // construction, agriculture, retail, roadwork, other
+  inviteCode   String   @unique
+  createdAt    DateTime @default(now())
+
+  contractor        User                   @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  jobPostings       JobPosting[]
+  workerLinks       WorkerContractorLink[]
+  attendanceRecords AttendanceRecord[]
+  safetyReports     SafetyReport[]
+  disputeReports    DisputeReport[]
+}
+
+model JobPosting {
+  id             String   @id @default(uuid())
+  contractorId   String
+  siteId         String?
+  title          String
+  requiredTrades String[]
+  workersNeeded  Int      @default(1)
+  dailyWage      Decimal  @db.Decimal(10, 2)
+  startDate      DateTime
+  durationType   String   // single_day, multi_day, ongoing
+  lat            Float
+  lng            Float
+  status         String   @default("OPEN") // OPEN, FILLED, CLOSED
+  createdAt      DateTime @default(now())
+
+  contractor   User             @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  site         Site?            @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  applications JobApplication[]
+  attendance   AttendanceRecord[]
+}
+
+model JobApplication {
+  id         String   @id @default(uuid())
+  jobId      String
+  workerId   String
+  appliedAt  DateTime @default(now())
+  status     String   @default("PENDING") // PENDING, CONTACTED, ACCEPTED, DECLINED
+  distanceKm Float?
+
+  job    JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  worker User       @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, workerId])
+}
+
+model WorkerContractorLink {
+  id           String   @id @default(uuid())
+  workerId     String
+  contractorId String
+  siteId       String?
+  status       String   @default("PENDING") // PENDING, ACTIVE, REVOKED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  worker     User  @relation("WorkerLinks", fields: [workerId], references: [id], onDelete: Cascade)
+  contractor User  @relation("ContractorLinks", fields: [contractorId], references: [id], onDelete: Cascade)
+  site       Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  @@unique([workerId, contractorId, siteId])
+}
+
+model AttendanceRecord {
+  id                 String    @id @default(uuid())
+  workerId           String
+  siteId             String?
+  jobId              String?
+  date               DateTime  @default(now())
+  checkInTime        DateTime  @default(now())
+  checkOutTime       DateTime?
+  checkInPhoto       String
+  checkOutPhoto      String?
+  checkInLat         Float
+  checkInLng         Float
+  checkOutLat        Float?
+  checkOutLng        Float?
+  confirmationStatus String    @default("PENDING") // PENDING, CONFIRMED, FLAGGED
+  flagReason         String?
+  earnedAmount       Decimal?  @db.Decimal(10, 2)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  worker        User           @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  site          Site?          @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  job           JobPosting?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  safetyReports SafetyReport[]
+}
+
+model PaymentRecord {
+  id           String    @id @default(uuid())
+  workerId     String
+  contractorId String
+  siteId       String?
+  amount       Decimal   @db.Decimal(10, 2)
+  mode         String    // CASH, UPI
+  status       String    // FULL, PARTIAL, UNPAID
+  date         DateTime  @default(now())
+  dueDate      DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+
+  worker     User @relation("WorkerPayments", fields: [workerId], references: [id], onDelete: Cascade)
+  contractor User @relation("ContractorPayments", fields: [contractorId], references: [id], onDelete: Cascade)
+}
+
+model SafetyReport {
+  id                 String   @id @default(uuid())
+  siteId             String
+  workerId           String
+  attendanceId       String?
+  date               DateTime @default(now())
+  riskType           String   // extreme_heat, heavy_rain, structural_hazard, no_safety_gear, other
+  temperature        Float?
+  weatherDescription String?
+  details            String?
+  status             String   @default("PENDING") // PENDING, RESOLVED
+  resolutionNote     String?
+  createdAt          DateTime @default(now())
+
+  site       Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  worker     User              @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  attendance AttendanceRecord? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+}
+
+model TrustScoreHistory {
+  id             String   @id @default(uuid())
+  userId         String
+  date           DateTime @default(now())
+  change         Int
+  reason         String
+  resultingScore Int
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DisputeReport {
+  id               String   @id @default(uuid())
+  workerId         String
+  contractorId     String
+  siteId           String?
+  startDate        DateTime
+  endDate          DateTime
+  generatedSummary String   @db.Text
+  totalEarned      Decimal  @db.Decimal(10, 2)
+  totalPaid        Decimal  @db.Decimal(10, 2)
+  balance          Decimal  @db.Decimal(10, 2)
+  linkedRecordIds  String[]
+  createdAt        DateTime @default(now())
+
+  worker     User  @relation("DisputesAsWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  contractor User  @relation("DisputesAsContractor", fields: [contractorId], references: [id], onDelete: Cascade)
+  site       Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+}
